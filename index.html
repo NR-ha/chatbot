@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northleaf Home – Mock Store Chatbot</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1f2328; --muted: #6b7078;
+    --accent: #2f6f5e; --accent-ink: #ffffff; --line: #e3e1dc; --bot: #eef3f1; --user: #2f6f5e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
+  .brand { font-weight: 700; letter-spacing: .3px; }
+  nav span { margin-left: 18px; color: var(--muted); font-size: 14px; }
+  main { max-width: 960px; margin: 28px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .img { background: linear-gradient(135deg,#d9e4df,#c6d6cf); border-radius: 12px; aspect-ratio: 1/1; display:flex; align-items:center; justify-content:center; color:#5d7a70; font-size: 15px; }
+  h1 { margin: 0 0 8px; font-size: 26px; }
+  .price { font-size: 22px; font-weight: 600; margin: 8px 0 16px; }
+  p { color: var(--muted); line-height: 1.5; }
+  .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 12px 18px; font-size: 15px; cursor: pointer; }
+  @media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+
+  /* chat widget */
+  #chat { position: fixed; right: 18px; bottom: 18px; width: 340px; max-width: calc(100vw - 36px); height: 470px; background: var(--card);
+          border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.12); display: flex; flex-direction: column; overflow: hidden; }
+  #chat-head { background: var(--accent); color: var(--accent-ink); padding: 12px 14px; display: flex; gap: 10px; align-items: center; }
+  #avatar { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.25); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+  #agent-name { font-weight: 600; font-size: 15px; }
+  #agent-role { font-size: 12px; opacity: .85; }
+  #log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 82%; padding: 9px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+  .bot { background: var(--bot); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .me { background: var(--user); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .typing { color: var(--muted); font-size: 13px; font-style: italic; }
+  #opts { padding: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .opt { background: #fff; border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 8px 10px; font-size: 14px; cursor: pointer; text-align: left; }
+  .opt:hover { background: #f1f6f4; }
+
+  /* researcher panel (hidden for participants with ?hidepanel=1) */
+  #panel { max-width: 960px; margin: 0 auto 520px; padding: 14px 16px; background: #fffbe8; border: 1px dashed #d9c77a; border-radius: 10px; font-size: 13px; }
+  #panel code { background: #f3ecd0; padding: 1px 4px; border-radius: 4px; }
+  #panel button { margin-right: 6px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Northleaf Home</div>
+  <nav><span>Living</span><span>Kitchen</span><span>Bedroom</span><span>Cart (0)</span></nav>
+</header>
+
+<main>
+  <div class="img">Product image</div>
+  <div>
+    <h1>Oak Frame Reading Chair</h1>
+    <div class="price" id="price">$349.00</div>
+    <p>Solid oak frame with a washable linen cover. Ships in 5–7 business days. 30-day returns.</p>
+    <button class="btn">Add to cart</button>
+  </div>
+</main>
+
+<section id="panel">
+  <strong>Researcher panel</strong> (hide it for participants by adding <code>?hidepanel=1</code> to the URL)<br>
+  Condition: <span id="cond-label"></span> · switch with <code>?cond=ai</code> or <code>?cond=human</code><br>
+  <button onclick="setCond('ai')">Load AI assistant</button>
+  <button onclick="setCond('human')">Load human agent</button>
+  <button onclick="copyLog()">Copy interaction log</button>
+  <span id="copied"></span>
+</section>
+
+<div id="chat">
+  <div id="chat-head">
+    <div id="avatar"></div>
+    <div><div id="agent-name"></div><div id="agent-role"></div></div>
+  </div>
+  <div id="log"></div>
+  <div id="opts"></div>
+</div>
+
+<script>
+  // ---------- Conditions: only the agent's identity differs; the script is identical ----------
+  const CONDITIONS = {
+    ai:    { name: "Leaf", role: "AI shopping assistant", avatar: "AI",
+             intro: "Hi! I'm Leaf, Northleaf's AI shopping assistant." },
+    human: { name: "Maya", role: "Customer service agent", avatar: "M",
+             intro: "Hi! I'm Maya, a customer service agent at Northleaf." }
+  };
+
+  // ---------- Script: each node = bot message(s) + reply options ----------
+  const SCRIPT = {
+    start: { bot: ["{intro} How can I help you today?"],
+             opts: [["Can I get a better price on this chair?", "price"],
+                    ["When would it arrive?", "shipping"]] },
+    shipping: { bot: ["This chair ships in 5–7 business days, and delivery is free on orders over $300."],
+                opts: [["Can I get a better price on this chair?", "price"], ["That's all, thanks!", "end"]] },
+    price: { bot: ["Let me check that for you.",
+                   "Based on your order details, I can offer you a 10% discount. Your new price would be $314.10."],
+             opts: [["Why 10%?", "why"], ["Great, I'll take it.", "accept"], ["No thanks.", "end"]] },
+    why: { bot: ["Discounts are set by looking at things like current stock and recent purchases, so the amount can differ between customers."],
+           opts: [["Okay, I'll take it.", "accept"], ["No thanks.", "end"]] },
+    accept: { bot: ["Done! The discount has been applied to your cart. Anything else?"], opts: [["That's all, thanks!", "end"]], price: "$314.10" },
+    end: { bot: ["Thanks for shopping with Northleaf. Have a great day!"], opts: [], done: true }
+  };
+
+  const params = new URLSearchParams(location.search);
+  let cond = params.get("cond") === "human" ? "human" : "ai";
+  if (params.get("hidepanel") === "1") document.getElementById("panel").style.display = "none";
+
+  const logEl = document.getElementById("log"), optsEl = document.getElementById("opts");
+  let events = [], t0 = Date.now();
+
+  function record(type, text) { events.push({ t_ms: Date.now() - t0, cond, type, text }); }
+
+  function addMsg(text, who) {
+    const d = document.createElement("div");
+    d.className = "msg " + who; d.textContent = text;
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function go(nodeId) {
+    const node = SCRIPT[nodeId], c = CONDITIONS[cond];
+    optsEl.innerHTML = "";
+    let i = 0;
+    const next = () => {
+      if (i < node.bot.length) {
+        const typing = document.createElement("div");
+        typing.className = "typing"; typing.textContent = c.name + " is typing…";
+        logEl.appendChild(typing); logEl.scrollTop = logEl.scrollHeight;
+        setTimeout(() => {
+          typing.remove();
+          const text = node.bot[i].replace("{intro}", c.intro);
+          addMsg(text, "bot"); record("bot", text); i++; next();
+        }, 900);   // same delay in both conditions
+      } else {
+        if (node.price) document.getElementById("price").textContent = node.price;
+        node.opts.forEach(([label, target]) => {
+          const b = document.createElement("button");
+          b.className = "opt"; b.textContent = label;
+          b.onclick = () => { addMsg(label, "me"); record("user", label); go(target); };
+          optsEl.appendChild(b);
+        });
+        if (node.done) finish();
+      }
+    };
+    next();
+  }
+
+  // Sends the log to a parent page (e.g., Qualtrics) when the chat ends.
+  function finish() {
+    record("end", "chat finished");
+    try { window.parent.postMessage({ source: "mock-chatbot", cond, events }, "*"); } catch (e) {}
+  }
+
+  function setCond(c) {
+    cond = c; events = []; t0 = Date.now();
+    const a = CONDITIONS[cond];
+    document.getElementById("agent-name").textContent = a.name;
+    document.getElementById("agent-role").textContent = a.role;
+    document.getElementById("avatar").textContent = a.avatar;
+    document.getElementById("cond-label").textContent = a.role;
+    document.getElementById("price").textContent = "$349.00";
+    logEl.innerHTML = ""; record("start", a.role);
+    go("start");
+  }
+
+  function copyLog() {
+    const txt = JSON.stringify(events, null, 1);
+    const done = () => { document.getElementById("copied").textContent = " copied"; setTimeout(() => document.getElementById("copied").textContent = "", 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done, () => alertLog(txt)); else alertLog(txt);
+  }
+  function alertLog(txt) { console.log(txt); document.getElementById("copied").textContent = " (see browser console)"; }
+
+  setCond(cond);
+</script>
+</body>
+</html>
